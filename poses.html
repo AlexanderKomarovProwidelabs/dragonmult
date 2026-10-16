@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dragon pose sheet</title>
+<canvas id="c"></canvas>
+<script src="core.js"></script>
+<script src="studio.js"></script>
+<script src="cels.js"></script>
+<script src="materials.js"></script>
+<script src="dragon.js"></script>
+<script>
+'use strict';
+const POSES = [
+  ['stand', {}],
+  ['shy', {crouch: .8, neck: -.5, head: .35, eye: 'sad', look: [-.6, .6], brow: -1, mouth: 'flat', tailCurl: 1.2, tail: -.6, frontFoot: [70, -40], blush: .8}],
+  ['flap', {wing: 1, flap: 1, lift: 40, lean: -.25, eye: 'wide', jaw: .5, mouth: 'open', backFoot: [-60, 20], frontFoot: [40, -10], fly: true}],
+  ['flap down', {wing: 1, flap: -1, lift: 40, lean: -.25, eye: 'squeeze', backFoot: [-60, 20], frontFoot: [40, -10]}],
+  ['happy', {eye: 'happy', mouth: 'grin', head: -.2, wing: .4, tail: .3}],
+  ['grown', {age: 1, wing: 1, flap: .3, eye: 'open', brow: .6, head: -.15, look: [.8, -.2], backFoot: [-70, 0], frontFoot: [60, 0]}],
+];
+function shot(c) {
+  paper(c, '#f5f0e5', null, 87);
+  POSES.forEach(([name, p], i) => {
+    const x = 300 + (i % 3) * 640, y = 470 + Math.floor(i / 3) * 520;
+    DR.draw(c, p, {x, y, scale: 1.25});
+    c.fillStyle = '#555'; c.font = '24px sans-serif'; c.fillText(name, x - 280, y - 380);
+  });
+}
+defineFilm({palette: {...PALETTES.pencilMinimal}, format: {ar: '16:9', width: 1920}, fps: 24, timeline: [{name: 'poses', dur: 1 / 24, fn: shot}]});
+</script>

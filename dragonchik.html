@@ -1,0 +1,366 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Дракончик · мультфильм для Тихона</title>
+<style>body{margin:0;background:#242321;display:grid;place-items:center;min-height:100vh;color:#ddd;font:14px sans-serif}canvas{max-width:100vw;max-height:88vh;object-fit:contain}.bar{display:flex;gap:8px;align-items:center;padding:8px;flex-wrap:wrap}</style>
+<canvas id="c"></canvas>
+<script src="core.js"></script>
+<script src="studio.js"></script>
+<script src="cels.js"></script>
+<script src="materials.js"></script>
+<script src="font.js"></script>
+<script src="dragon.js"></script>
+<script src="bg.js"></script>
+<script src="fx.js"></script>
+<script src="score.js"></script>
+<script>
+'use strict';
+/* Film brief
+Subject: a shy little green dragon who cannot fly or breathe fire and is laughed at;
+  he practises alone, grows braver and more independent and finds his own flame.
+For: Тихон, 10. Original character (no franchise designs).
+Duration 60 s; 16:9; 1920x1080; 24 fps.
+Look: pencil. Graphite contours (cels.js) over coloured-pencil hatching (formHatch) on cream paper.
+Palette bindings: paper is the world surface; hatching belongs to each object; no screen grain.
+Cast: Малыш (green; age 0 → 1 changes proportions, wings and horns), two young dragons (blue, red),
+  distant adult dragons. Profile views; expressions are replacement drawings (eyes, brow, mouth).
+Drawing method: every exposed drawing is rebuilt from construction (spine, IK limbs, wings) into
+  continuous contours; drawings on twos, fast flapping on ones; holds keep their marks.
+Hardest action: the leap from the cliff and the climb back past the camera (scene 6).
+Beat sheet (start, duration, focus):
+  0  5  Title. Adults fly overhead; Малыш watches from a rock.
+  5  9  First try: run, jump, frantic flapping, belly-flop. The others laugh.
+ 14  7  Fire try: big breath, a sad little puff and a cough. Giggles. He walks away.
+ 21  7  Night alone. An adult dragon crosses the moon; he looks up and decides.
+ 28 12  Sketchbook days 1 / 10 / 30: glide into a bush, light a candle, real flight.
+ 40  9  Grown up at the high cliff. He leaps, falls out of frame, then climbs past the camera.
+ 49  5  Sunset sky: his own flame blooms into a sun. "Ура!"
+ 54  6  He lands on the cliff, stands tall with friends. "Для Тихона".
+Sources: Caveat font (SIL OFL, fonts/OFL.txt). Everything else is drawn in code.
+*/
+(() => {
+const {write} = FX;
+// ---- pose tracks: cumulative keys, eased blends, strings switch at the midpoint
+function blendPose(a, b, u) {
+  const o = {...a};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const va = a[k] ?? DR.BASE[k], vb = b[k] ?? DR.BASE[k];
+    if (typeof va === 'number' && typeof vb === 'number') o[k] = lerp(va, vb, u);
+    else if (Array.isArray(va) && Array.isArray(vb)) o[k] = va.map((v, i) => lerp(v, vb[i], u));
+    else o[k] = u < .5 ? va : vb;
+  }
+  return o;
+}
+function track(keys) {
+  let acc = {}; const K = keys.map(([t, p, e]) => { acc = {...acc, ...p}; return [t, acc, e]; });
+  return t => {
+    if (t <= K[0][0]) return {...K[0][1]};
+    for (let i = 1; i < K.length; i++) if (t < K[i][0]) { const [ta, a] = K[i - 1], [tb, b, e = easeInOutSine] = K[i]; return blendPose(a, b, e((t - ta) / (tb - ta))); }
+    return {...K[K.length - 1][1]};
+  };
+}
+const hold = () => 0;   // ease that keeps the previous key until the next (a cut between drawings)
+// gait: in-place trot; the root must advance 2*stride/T per second to keep planted feet still
+function gait(t, {T = .5, stride = 50, lift = 16, bob = 6, k = 1} = {}) {
+  const foot = (base, off) => { const p = ((t / T + off) % 1 + 1) % 1;
+    return p < .5 ? [base[0] + stride * (.5 - 2 * p) * k, base[1]] : [base[0] + stride * (-.5 + 2 * (p - .5)) * k, base[1] - Math.sin(Math.PI * (2 * p - 1)) * lift * k]; };
+  return {backFoot: foot([-48, 0], 0), frontFoot2: foot([62, 0], 0), backFoot2: foot([-24, 0], .5), frontFoot: foot([44, 0], .5), lift: Math.abs(Math.sin(TAU * t / T)) * bob};
+}
+const speed = ({T = .5, stride = 50, k = 1} = {}) => 2 * stride * k / T;
+const FLY = {fly: true, wing: 1, backFoot: [-62, -16], backFoot2: [-40, -12], frontFoot: [36, -30], frontFoot2: [52, -26]};
+function dragon(c, p, pal = DR.GREEN, name = 'malysh') {
+  const {X = 0, Y = 0, scale = 1, flip = 1, alpha = 1, ...pose} = p;
+  return DR.draw(c, pose, {x: X, y: Y, scale, flip, pal, name, alpha});
+}
+// screen-space point of a dragon-local fx point
+const worldOf = (p, q) => [p.X + q[0] * (p.scale ?? 1) * (p.flip ?? 1), p.Y + q[1] * (p.scale ?? 1)];
+function zoomAbout(c, z, cx = CX, cy = CY) { c.translate(cx, cy); c.scale(z, z); c.translate(-cx, -cy); }
+
+// ================= 1. Title =================
+const titleMalysh = track([
+  [0, {X: 470, Y: 836, scale: .8, crouch: .8, neck: -.4, head: .2, eye: 'open', look: [.6, -.7], brow: -.4, mouth: 'flat', tailCurl: 1.1, tail: -.5, frontFoot: [64, -2]}],
+  [1.6, {head: -.15, look: [.8, -.9]}],
+  [3.2, {eye: 'closed'}, hold], [3.35, {eye: 'open'}, hold],
+  [4.2, {look: [1, -.4], head: 0, brow: -.6}],
+]);
+function adultFlyer(c, t, x0, y0, pal, name, ph, k = .42) {
+  const p = {...FLY, age: 1, flap: Math.sin(t * TAU * 1.3 + ph), lean: -.05, eye: 'open', look: [1, 0], mouth: 'smile', tailWave: Math.sin(t * 3 + ph) * .6,
+    X: x0 + t * 560, Y: y0 + Math.sin(t * 2.6 + ph) * 14, scale: k};
+  dragon(c, p, pal, name);
+}
+function sceneTitle(c, tau) {
+  const tt = twos(tau);
+  c.save(); zoomAbout(c, 1 + tau * .008, CX, 700);
+  BG.title(c);
+  adultFlyer(c, tau, -380, 430, DR.BLUE, 'adultBlue', 0);
+  adultFlyer(c, tau, -820, 520, DR.RED, 'adultRed', 1.7, .36);
+  dragon(c, titleMalysh(tt));
+  c.restore();
+  write(c, 'Дракончик', CX, 230, 190, clamp((tau - .3) / 1.4, 0, 1), {color: '#2f5d2a', shadow: '#a6d06f'});
+}
+
+// ================= 2. First flight =================
+const G2 = {T: .4, stride: 50}, V2 = speed(G2);
+function malysh2(t) {
+  const base = {X: 330, Y: BG.MEADOW_Y, scale: 1, mouth: 'flat', look: [1, -.15], brow: 0};
+  if (t < 1.6) return track([
+    [0, base], [.8, {look: [.5, -1], head: -.25, brow: .6}],
+    [1.15, {crouch: 0}], [1.6, {crouch: .9, lean: .25, head: .1, wing: .3, look: [1, 0], brow: .8}, easeOut],
+  ])(t);
+  if (t < 2.9) { const u = t - 1.6, g = gait(u, G2);
+    return {...base, ...g, X: 330 + V2 * u, lean: .12, wing: .7, flap: Math.sin(u * TAU * 3), head: .05, jaw: .3, mouth: 'open', brow: .8, look: [1, 0], tailWave: Math.sin(u * 8) * .5}; }
+  if (t < 4.5) { const u = t - 2.9, x = 330 + V2 * 1.3 + u * 300;
+    const h = u < .85 ? 150 * Math.sin(u / .85 * Math.PI / 2) : u < 1.1 ? 150 - (u - .85) * 40 : Math.max(0, 140 - Math.pow((u - 1.1) / .4, 2) * 140);
+    const falling = u > 1.1;
+    return {...base, ...FLY, X: x, Y: BG.MEADOW_Y - h - 20, flap: falling ? 1 : Math.sin(u * TAU * 5.5), lean: falling ? .55 : -.2,
+      eye: falling ? 'squeeze' : 'wide', jaw: falling ? .2 : .6, mouth: 'open', look: [.6, .8], brow: -.5, tailWave: Math.sin(u * 14) * .8}; }
+  const x = 330 + V2 * 1.3 + 1.6 * 300;
+  return track([
+    [4.5, {...base, X: x, crouch: 1.35, lift: -16, lean: .05, backFoot: [-120, 0], backFoot2: [-100, 0], frontFoot: [118, 0], frontFoot2: [134, 0], wing: .4, flap: 0, eye: 'closed', head: .2, jaw: 0, mouth: 'flat', tail: .2}],
+    [6.2, {head: .05}],
+    [6.6, {crouch: .7, lift: 0, backFoot: [-48, 0], backFoot2: [-24, 0], frontFoot: [50, 0], frontFoot2: [66, 0], eye: 'open', look: [1, -.3], head: 0, wing: 0}],
+    [7.0, {eye: 'squeeze', blush: 1, head: .45, crouch: .9, neck: -.4, tailCurl: 1.2, tail: -.6, mouth: 'frown'}],
+    [7.9, {flip: 1}], [8.0, {flip: -1, X: x - 40, eye: 'sad', look: [-.2, .8], lid: .5}, hold],
+  ])(t);
+}
+function youngster(t, X, Y, laughFrom, ph, extra = {}) {
+  const laughing = t > laughFrom;
+  return {X, Y, scale: .78, flip: -1, age: .45, crouch: .7, neck: -.2, tailCurl: .8, tail: -.3, frontFoot: [56, 0], look: [1, .1], mouth: 'smile',
+    ...(laughing ? {eye: 'happy', jaw: .55, mouth: 'open', head: -.3, lift: Math.abs(Math.sin((t - laughFrom) * TAU * 2.2 + ph)) * 12, crouch: .5} : {head: Math.sin(t * 1.3 + ph) * .05}),
+    ...extra};
+}
+function sceneFlight(c, tau) {
+  const tt = twos(tau), fast = tau > 1.6 && tau < 4.5, t = fast ? tau : tt;
+  BG.meadow(c);
+  dragon(c, youngster(tt, 1560, 696, 6.2, 0), DR.BLUE, 'blue');
+  dragon(c, youngster(tt, 1740, 700, 6.35, 1.3), DR.RED, 'red');
+  const m = malysh2(t);
+  if (tau > 1.6 && tau < 2.9) speedLines(c, m.X - 200, m.Y - 70, Math.PI, 7, 5, .35);
+  const fx = dragon(c, m);
+  if (tau >= 4.5) FX.dust(c, m.X, BG.MEADOW_Y, tau - 4.5, 3, 1.2);
+  if (tau > 4.7 && tau < 6.4) { const h = worldOf(m, fx.top); FX.dizzy(c, worldOf(m, fx.nose)[0] - 60, h[1] - 120, tau, 1); }
+  if (tau > 6.2) {
+    write(c, 'Ха-ха-ха!', 1640, 500, 110, clamp((tau - 6.3) / .6, 0, 1), {rot: -.08 + Math.sin(FX.drawingIndex(tau) * 1.1) * .03, color: '#2f4f86', shadow: '#9dbde3'});
+    write(c, 'хи-хи!', 1330, 540, 74, clamp((tau - 6.9) / .4, 0, 1), {rot: .1, color: '#94402a', shadow: '#f0a777'});
+  }
+}
+
+// ================= 3. Fire =================
+const GROUND3 = 905, STICKS = [1300, 915];
+const malysh3 = track([
+  [0, {X: 700, Y: GROUND3, scale: 1.6, look: [1, .4], brow: .6, mouth: 'flat', head: .1}],
+  [.8, {}], [2.2, {puff: 1, head: -.35, lean: -.12, look: [.6, -.6]}],
+  [2.25, {eye: 'closed'}, hold],
+  [2.4, {puff: 0, head: .18, lean: .1, jaw: .9, mouth: 'open', eye: 'squeeze'}, easeOut],
+  [2.9, {}], [3.0, {eye: 'wide', jaw: .2, look: [1, .2], brow: -.2}, hold],
+  [3.5, {}], [3.6, {head: .35, eye: 'squeeze', jaw: .6, lean: .08}, easeOut], [3.9, {head: .15, jaw: .1, eye: 'open', lean: 0}],
+  [4.3, {}], [4.6, {blush: 1, eye: 'sad', head: .4, mouth: 'frown', jaw: 0, look: [-.4, .7], brow: -1, neck: -.3, tail: -.4}],
+  [5.2, {}], [5.3, {flip: -1}, hold],
+]);
+function sceneFire(c, tau) {
+  const tt = twos(tau);
+  BG.closeMeadow(c);
+  c.save(); c.translate(...STICKS); c.scale(1.5, 1.5); FX.sticks(c, 0, 0); c.restore();
+  let m = malysh3(tt);
+  if (tt > 5.3) { const u = tt - 5.3, G = {T: .7, stride: 30}; m = {...m, ...gait(u, G), X: 700 - speed(G) * 1.6 * u}; }
+  const fx = dragon(c, m);
+  const mouth = worldOf(m, fx.mouth);
+  if (tau > 2.4 && tau < 2.75) FX.flame(c, mouth[0], mouth[1], .25, 70 * Math.sin((tau - 2.4) / .35 * Math.PI), tau, {width: 14, seed: 5});
+  FX.puffRing(c, mouth[0] + 30, mouth[1], tau - 2.55, 1.5);
+  if (tau > 2.55 && tau < 3.5) { const u = (tau - 2.55) / .95; FX.spark(c, mouth[0] + 60 + u * 140, mouth[1] + 20 + u * u * 180, 14 * (1 - u * .6), 1 - u * .7); }
+  FX.smoke(c, mouth[0], mouth[1] - 10, tau - 3.6, {seed: 4, n: 3, k: 1.2, rise: 60, dir: -.3, life: 1.2});
+  if (tau > 4.2) {
+    write(c, 'хи-хи...', 1640, 380, 92, clamp((tau - 4.2) / .5, 0, 1), {rot: .06, color: '#2f4f86', shadow: '#9dbde3'});
+    write(c, 'пф...', 1260, 560, 70, clamp((tau - 2.7) / .3, 0, 1), {alpha: clamp(1 - (tau - 4.4) / .6, 0, 1), color: '#6f6a62', shadow: null});
+  } else write(c, 'пф...', 1260, 560, 70, clamp((tau - 2.7) / .3, 0, 1), {color: '#6f6a62', shadow: null});
+}
+
+// ================= 4. Night =================
+const malysh4 = track([
+  [0, {X: 760, Y: 828, scale: 1.1, crouch: .9, frontFoot: [62, 0], frontFoot2: [76, 0], backFoot: [-30, 0], tailCurl: 1, tail: -.5, head: .42, eye: 'sad', lid: .5, look: [-.2, .6], mouth: 'frown', neck: -.3, brow: -.8}],
+  [1.4, {puff: .5, head: .3}], [2.2, {puff: 0, head: .45}],
+  [3.0, {}], [3.6, {head: -.3, look: [.7, -.9], eye: 'open', lid: 0, mouth: 'flat', neck: 0, brow: 0}],
+  [4.6, {}], [4.9, {brow: .9, mouth: 'smile'}], [5.15, {head: -.05}], [5.4, {head: -.28}],
+  [5.8, {}], [6.4, {crouch: 0, wing: .6, flap: .6, tail: .2, tailCurl: 0, head: -.15, look: [1, -.4], frontFoot: [44, 0], frontFoot2: [62, 0], backFoot: [-48, 0]}, easeOut],
+  [6.75, {flap: -.2}], [7, {flap: .6}],
+]);
+function sceneNight(c, tau) {
+  const tt = twos(tau);
+  BG.night(c);
+  FX.shootingStar(c, 220, 110, 900, 330, (tau - 2.4) / 1.1);
+  if (tau > 2.6 && tau < 6) { const u = tau - 2.6; c.save(); c.globalAlpha = .9;
+    dragon(c, {...FLY, age: 1, X: 1180 + u * 240, Y: 300 - u * 30, scale: .5, flap: Math.sin(u * TAU * .9), lean: -.1, eye: 'open', mouth: 'smile', tailWave: Math.sin(u * 2) * .5}, {...DR.BLUE, body: '#43507e', belly: '#8d93b8', wing: '#5f6aa0', shade: '#262c55'}, 'nightAdult'); c.restore(); }
+  dragon(c, malysh4(tt));
+}
+
+// ================= 5. Sketchbook days =================
+function dayCard(c, label, sub) { write(c, label, 250, 130, 96, 1, {align: 'left', color: '#7a2f2f', shadow: '#f0b0a0'}); if (sub) write(c, sub, 255, 200, 52, 1, {align: 'left', color: '#6f6a62', shadow: null}); }
+function day1(c, t) {
+  BG.page(c, 1); dayCard(c, 'День 1');
+  const stoneTop = BG.PAGE_Y - 100, g = {age: .1, scale: .95};
+  let m;
+  if (t < .6) m = track([[0, {...g, X: 520, Y: stoneTop, brow: .7, look: [1, -.2]}], [.6, {crouch: .9, lean: .2, wing: .3}]])(t);
+  else if (t < 2.0) { const u = (t - .6) / 1.4; m = {...g, ...FLY, X: lerp(520, 1210, u), Y: stoneTop - Math.sin(u * Math.PI) * 120 + u * u * 120, flap: u < .7 ? Math.sin(t * TAU * 4) : .9, lean: lerp(-.2, .6, u), eye: u < .7 ? 'open' : 'squeeze', brow: .6, jaw: .3, mouth: 'open', look: [1, .3]}; }
+  else m = track([
+    [2.0, {...g, X: 1240, Y: BG.PAGE_Y + 4, crouch: 1.3, lift: -14, lean: .1, backFoot: [-120, 0], backFoot2: [-100, 0], frontFoot: [118, 0], frontFoot2: [134, 0], wing: .4, eye: 'closed', head: .2, mouth: 'flat'}],
+    [2.8, {}],
+    [3.1, {crouch: 0, lift: 0, lean: 0, backFoot: [-48, 0], backFoot2: [-24, 0], frontFoot: [44, 0], frontFoot2: [62, 0], wing: 0, eye: 'open', head: -.1, look: [-.8, -.2]}, easeOut],
+    [3.3, {head: .1}], [3.45, {head: -.1}], [3.6, {eye: 'happy', mouth: 'smile', brow: .6, head: -.05}, hold],
+  ])(t);
+  const fx = dragon(c, m);
+  FX.leaves(c, 1300, BG.PAGE_Y - 40, t - 2.0, 3);
+  if (t > 2.0 && t < 3.0) FX.dizzy(c, m.X + 40, m.Y - 160, t, .8);
+  if (t > 3.4) write(c, 'ещё раз!', 1120, 560, 84, clamp((t - 3.4) / .4, 0, 1), {rot: -.05});
+}
+function day2(c, t) {
+  BG.page(c, 2); dayCard(c, 'День 10');
+  const wick = [1240, BG.PAGE_Y - 110 - 6];
+  const m = track([
+    [0, {X: 880, Y: BG.PAGE_Y, age: .4, scale: 1.1, look: [1, -.3], brow: .7, mouth: 'flat', head: -.05}],
+    [.4, {}], [1.3, {puff: 1, head: -.3, eye: 'closed', lean: -.1}],
+    [1.45, {puff: 0, head: -.02, eye: 'open', jaw: .9, mouth: 'open', lean: .05, brow: .9}, easeOut],
+    [2.25, {}], [2.35, {jaw: 0, mouth: 'grin', eye: 'happy', head: -.15}, hold],
+    [2.6, {}], [2.9, {lift: 50, wing: .8, flap: 1, crouch: 0}, easeOut], [3.2, {lift: 0, flap: -.3, wing: .3}, easeIn], [3.35, {crouch: .3}], [3.6, {crouch: 0, wing: 0}],
+  ])(t);
+  FX.candle(c, wick[0], wick[1] + 110, clamp((t - 2.0) / .2, 0, 1), t, {k: 1});
+  const fx = dragon(c, m), mouth = worldOf(m, fx.mouth);
+  if (t > 1.45 && t < 2.3) { const a = Math.atan2(wick[1] - 40 - mouth[1], wick[0] - mouth[0]), d = Math.hypot(wick[0] - mouth[0], wick[1] - 40 - mouth[1]);
+    FX.flame(c, mouth[0], mouth[1], a, d * Math.min(1, (t - 1.45) / .3) * (t > 2.1 ? 1 - (t - 2.1) / .2 : 1), t, {width: 30, seed: 9}); }
+  if (t > 2.4) FX.heart(c, m.X + 60, m.Y - 260 - (t - 2.4) * 40, 2.2, {alpha: clamp(1 - (t - 3.4) / .6, 0, 1)});
+}
+function day3(c, t) {
+  BG.page(c, 3); dayCard(c, 'День 30');
+  const g = {age: .75, scale: 1}, G = {T: .4, stride: 52}, v = speed(G);
+  let m;
+  if (t < .9) m = {...g, ...gait(t, G), X: 260 + v * t, Y: BG.PAGE_Y, lean: .12, wing: .6, flap: Math.sin(t * TAU * 2), brow: .6, mouth: 'smile', look: [1, -.1]};
+  else if (t < 2.6) { const u = (t - .9) / 1.7, x0 = 260 + v * .9; m = {...g, ...FLY, X: lerp(x0, 1440, u), Y: BG.PAGE_Y - 20 - Math.sin(u * Math.PI) * 300, flap: Math.sin(t * TAU * 1.8), lean: lerp(-.35, .25, u), eye: 'open', brow: .4, mouth: 'grin', look: [1, lerp(-.4, .5, u)], tailWave: Math.sin(t * 4) * .6}; }
+  else m = track([
+    [2.6, {...g, X: 1460, Y: BG.PAGE_Y, crouch: .7, wing: 1, flap: .8, lean: -.05, brow: .4, mouth: 'grin', eye: 'open', look: [1, -.2]}],
+    [2.9, {crouch: 0, flap: .3, wing: .8}, easeOut], [3.3, {wing: .7, flap: .2, puff: .4, head: -.2, eye: 'happy'}],
+  ])(t);
+  dragon(c, m);
+  if (t > .9 && t < 2.6) speedLines(c, m.X - 260, m.Y - 80, Math.PI, 13, 4, .3);
+}
+function sceneDays(c, tau) {
+  const p = Math.min(2, Math.floor(tau / 4)), t = twos(tau - p * 4), slide = t < .25 && p > 0 ? (1 - easeOut(t / .25)) * W : 0;
+  const flying = (p === 0 && t > .6 && t < 2) || (p === 2 && t > .9 && t < 2.6), tl = flying ? tau - p * 4 : t;
+  c.save(); c.translate(slide, 0);
+  [day1, day2, day3][p](c, tl);
+  c.restore();
+  if (slide > 0) { // the previous page leaves to the left
+    c.save(); c.translate(slide - W, 0); [day1, day2, day3][p - 1](c, 3.99); c.restore();
+    c.save(); c.globalAlpha = .25; c.fillStyle = '#6f6253'; c.fillRect(slide - 10, 0, 10, H); c.restore();
+  }
+}
+
+// ================= 6. The cliff =================
+const CT = BG.CLIFF_TOP, GW = {T: .55, stride: 40, k: 1.2}, VW = speed(GW);
+function malysh6(t) {
+  const g = {age: 1, scale: .95, Y: CT + 2};
+  if (t < 2) return {...g, ...gait(t, GW), X: 700 + VW * t, brow: .3, mouth: 'smile', look: [1, 0], wing: 0, tailWave: Math.sin(t * 3) * .3};
+  const xe = 700 + VW * 2;
+  if (t < 3.8) return track([
+    [2, {...g, X: xe, brow: .3, mouth: 'smile', look: [1, 0]}], [2.4, {head: .35, look: [.6, .9], mouth: 'flat'}],
+    [2.8, {head: -.25, look: [.5, -.8]}], [3.0, {}], [3.25, {puff: 1, eye: 'closed', head: -.3}], [3.45, {puff: 0, eye: 'open', brow: .9, mouth: 'smile', head: 0}],
+    [3.8, {crouch: 1, lean: .35, wing: .3}, easeOut],
+  ])(t);
+  if (t < 4.6) { const u = t - 3.8; return {...g, ...FLY, wing: .15, flap: 1, X: xe + u * 420, Y: CT - 40 - 160 * u + 1500 * u * u, lean: lerp(-.3, 1.1, clamp(u / .6, 0, 1)), eye: 'closed', brow: .9, mouth: 'flat'}; }
+  if (t < 5.6) return null;
+  const u = (t - 5.6) / 3.2, e = easeOut(clamp(u, 0, 1));
+  return {...g, ...FLY, scale: 1.05, X: 1560 - u * 380, Y: lerp(CT + 640, 560, e), flap: Math.sin(t * TAU * 1.5), lean: lerp(-.9, -.15, e), eye: u > .45 ? 'happy' : 'open', brow: .6, mouth: 'grin', look: [.6, -.6], tailWave: Math.sin(t * 3) * .7};
+}
+function friends6(t) {
+  const out = [];
+  [[DR.BLUE, 'blue', 260, 0], [DR.RED, 'red', 400, .15]].forEach(([pal, name, x0, d]) => {
+    const base = {age: .55, scale: .8, Y: CT + 2, look: [1, -.1], mouth: 'smile', crouch: .6, frontFoot: [56, 0], tailCurl: .6};
+    let p;
+    if (t < 4.4 + d) p = {...base, X: x0, head: t > 2.3 && t < 3.8 ? .1 : 0};
+    else if (t < 5.4 + d) { const G = {T: .3, stride: 46}, u = t - 4.4 - d; p = {...base, ...gait(u, G), crouch: 0, X: x0 + speed(G) * u, eye: 'wide', mouth: 'open', jaw: .3, brow: -.6, lean: .15}; }
+    else { const G = {T: .3, stride: 46}; p = {...base, crouch: .2, X: x0 + speed(G) * 1.0, eye: 'wide', jaw: .5, mouth: 'open', brow: -.5,
+      ...(t > 6.6 ? {look: [.4, -1], head: -.45, eye: t > 7.6 ? 'happy' : 'wide', mouth: t > 7.6 ? 'grin' : 'open', jaw: t > 7.6 ? .5 : .6, wing: t > 7.6 ? .7 : 0, flap: 1} : {look: [1, .8], head: .4})}; }
+    out.push([p, pal, name]);
+  });
+  return out;
+}
+function sceneCliff(c, tau) {
+  const tt = twos(tau), fast = (tau > 3.8 && tau < 4.6) || tau > 5.6;
+  const camY = tau < 5.6 ? 980 : lerp(980, 60, easeInOutSine(clamp((tau - 5.6) / 3.2, 0, 1)));
+  c.save(); c.translate(0, -camY);
+  BG.cliff(c);
+  friends6(tt).forEach(([p, pal, name]) => dragon(c, p, pal, name));
+  const m = malysh6(fast ? tau : tt);
+  if (m) { if (tau > 5.6) speedLines(c, m.X + 40, m.Y + 280, Math.PI / 2, 21, 6, .3); dragon(c, m); }
+  c.restore();
+}
+
+// ================= 7. His own flame =================
+const CENTER7 = [1380, 330];
+function sceneFlame(c, tau) {
+  const tt = twos(tau);
+  BG.sunset(c, -100 - tau * 12);
+  const m = track([
+    [0, {...FLY, age: 1, scale: 1.2, X: 640, Y: 640, flap: 0, lean: -.1, eye: 'open', brow: .5, mouth: 'smile', look: [1, -.5], head: -.1}],
+    [.5, {}], [1.3, {puff: 1, head: -.32, eye: 'closed'}],
+    [1.45, {puff: 0, head: -.38, jaw: 1, mouth: 'open', eye: 'open', brow: .9}, easeOut],
+    [3.3, {}], [3.5, {jaw: 0, mouth: 'grin', eye: 'happy', head: -.2}],
+  ])(tt);
+  m.X = 640 + tau * 30; m.Y = 640 + Math.sin(tau * 1.8) * 16; m.flap = Math.sin(tau * TAU * .8) * (tau > 1.3 && tau < 3.3 ? .4 : 1); m.tailWave = Math.sin(tau * 2) * .6;
+  const fx = dragon(c, m), mouth = worldOf(m, fx.mouth);
+  const bloomU = clamp((tau - 2.1) / 1.0, 0, 1);
+  FX.bloom(c, ...CENTER7, bloomU, {k: 1, t: tau});
+  if (tau > 1.45 && tau < 3.4) {
+    const d = Math.hypot(CENTER7[0] - mouth[0], CENTER7[1] - mouth[1]), a = Math.atan2(CENTER7[1] - mouth[1], CENTER7[0] - mouth[0]);
+    const grow = clamp((tau - 1.45) / .6, 0, 1), fade = tau > 3.0 ? 1 - (tau - 3.0) / .4 : 1;
+    FX.flame(c, mouth[0], mouth[1], a, d * grow, tau, {width: 46 * fade, seed: 17});
+  }
+  if (tau > 3.2) {
+    const cheer = (x, pal, name, ph) => dragon(c, {age: .55, scale: .95, X: x, Y: H + 50 - Math.abs(Math.sin((tau - 3.2) * TAU * 1.6 + ph)) * 22, eye: 'happy', jaw: .6, mouth: 'open', head: -.4, wing: .9, flap: 1, look: [1, -1], crouch: 0}, pal, name);
+    cheer(230, DR.BLUE, 'blue', 0); cheer(470, DR.RED, 'red', 1);
+    write(c, 'Ура!', 380, 800, 130, clamp((tau - 3.3) / .4, 0, 1), {rot: -.1, color: '#94402a', shadow: '#ffd27a'});
+  }
+}
+
+// ================= 8. Finale =================
+function sceneFinale(c, tau) {
+  const tt = twos(tau), fast = tau < 1.25;
+  BG.sunset(c, 0, true);
+  const top = 858;
+  let m;
+  if (fast) { const u = tau / 1.25, e = easeOut(u); m = {...FLY, age: 1, scale: 1, X: lerp(1250, 1010, e), Y: lerp(300, top, easeIn(u) * .3 + e * .7), flap: Math.sin(tau * TAU * 1.6), lean: lerp(-.3, -.1, u), eye: 'open', brow: .4, mouth: 'smile', look: [-.2, .8], backFoot: [-50, 4], frontFoot: [40, -6]}; }
+  else m = track([
+    [1.25, {age: 1, scale: 1, X: 1010, Y: top, crouch: .8, wing: 1, flap: .8, lean: 0, eye: 'open', brow: .4, mouth: 'smile', look: [.2, .5], head: .1}],
+    [1.6, {crouch: 0, flap: .3, wing: .8, head: -.1}, easeOut],
+    [2.2, {puff: .5, head: -.18, look: [1, -.2], brow: .3}], [3.0, {look: [-1, .1]}], [3.6, {eye: 'happy', mouth: 'grin'}, hold],
+    [4.6, {eye: 'open', look: [1, -.3], mouth: 'smile'}, hold], [6, {}],
+  ])(tt);
+  // friends walk in from the left and sit beside him
+  [[DR.BLUE, 'blue', -180, .0, 400], [DR.RED, 'red', -340, .25, 640]].forEach(([pal, name, x0, d, xs]) => {
+    const G = {T: .45, stride: 40}, v = speed(G), u = tt - .6 - d, tEnd = (xs - x0) / v;
+    let p = {age: .55, scale: .82, Y: top, look: [1, -.1], mouth: 'smile', eye: 'open'};
+    if (u < 0) return;
+    if (u < tEnd) p = {...p, ...gait(u, G), X: x0 + v * u};
+    else p = {...p, X: xs, crouch: .7, frontFoot: [56, 0], tailCurl: .7, eye: tt > 3.6 + d ? 'happy' : 'open', look: [1, -.4], head: -.1};
+    dragon(c, p, pal, name);
+  });
+  const breathe = tau > 2.2 ? Math.sin(tt * 2.2) * .15 : 0;
+  dragon(c, {...m, puff: (m.puff || 0) + breathe});
+  write(c, 'Для Тихона', CX, 230, 170, clamp((tau - 2.4) / 1.4, 0, 1), {color: '#7a2f2f', shadow: '#ffd27a'});
+  if (tau > 3.9) FX.heart(c, CX + 450, 180, 2.4 * easeOutBack(clamp((tau - 3.9) / .4, 0, 1)));
+}
+
+defineFilm({
+  palette: {...PALETTES.pencilMinimal, paper: '#f5f0e5'},
+  format: {ar: '16:9', width: 1920}, fps: 24,
+  timeline: [
+    {name: 'title', dur: 5, fn: sceneTitle},
+    {name: 'first-flight', dur: 9, fn: sceneFlight},
+    {name: 'fire', dur: 7, fn: sceneFire},
+    {name: 'night', dur: 7, fn: sceneNight},
+    {name: 'days', dur: 12, fn: sceneDays},
+    {name: 'cliff', dur: 9, fn: sceneCliff},
+    {name: 'flame', dur: 5, fn: sceneFlame},
+    {name: 'finale', dur: 6, fn: sceneFinale},
+  ],
+  score: typeof SCORE === 'function' ? SCORE : undefined,
+});
+})();
+</script>
