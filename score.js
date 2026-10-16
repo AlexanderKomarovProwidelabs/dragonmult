@@ -3,7 +3,7 @@
 // Scene cues: 0 title · 5 first flight · 14 fire · 21 night · 28 days · 40 cliff · 49 flame · 54 finale.
 function SCORE(ac, t0, destination) {
   const END = 60, master = ac.createGain();
-  master.gain.setValueAtTime(.75, t0); master.gain.setValueAtTime(.75, t0 + END - 2.2); master.gain.linearRampToValueAtTime(0, t0 + END - .05);
+  master.gain.setValueAtTime(1.4, t0); master.gain.setValueAtTime(1.4, t0 + END - 2.2); master.gain.linearRampToValueAtTime(0, t0 + END - .05);
   const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 2.5; comp.attack.value = .01; comp.release.value = .25;
   master.connect(comp); comp.connect(destination);
   const verb = ac.createConvolver(), ir = ac.createBuffer(2, Math.floor(ac.sampleRate * 2.2), ac.sampleRate), R = rng(808);
